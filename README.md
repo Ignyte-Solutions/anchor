@@ -28,6 +28,10 @@ go test ./...
 
 Protocol artifacts use semantic versioning and normative docs in this repository are source-of-truth for v2.
 
+Release references:
+- `docs/COMPATIBILITY_MATRIX.md`
+- `docs/SECURITY_DISCLOSURE.md`
+
 ## License
 
 Apache-2.0. See `LICENSE`.

@@ -14,3 +14,5 @@
 | TypeScript | Supported | Supported (pluggable crypto provider) |
 | Python | Supported | Supported (pluggable crypto provider) |
 | Java | Supported | Supported (pluggable crypto provider) |
+
+Detailed release gates and language status: `docs/COMPATIBILITY_MATRIX.md`.

@@ -11,3 +11,4 @@ Protocol changes are proposed via RFC documents in `docs/rfcs/` and require:
 ## Security reports
 
 Security issues are reported privately and patched with coordinated disclosure.
+Disclosure process versioning is tracked in `docs/SECURITY_DISCLOSURE.md`.
