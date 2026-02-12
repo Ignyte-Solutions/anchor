@@ -3,6 +3,7 @@ package v2_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -108,6 +109,105 @@ func TestVerifyRejectsMissingChallengeForHighRiskAction(t *testing.T) {
 	}
 	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeChallengeRequired) {
 		t.Fatalf("expected challenge required reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsTransparencyInvalid(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+		Transparency: v2.FuncTransparencyVerifier(func(_, _ string) error {
+			return errors.New("missing transparency proof")
+		}),
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeTransparencyInvalid) {
+		t.Fatalf("expected transparency invalid reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsPolicyHookViolation(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+		PolicyEvaluator: v2.FuncPolicyEvaluator(func(_ v2.Capability, _ v2.ActionEnvelope) ([]v2.ReasonCode, []string) {
+			return []v2.ReasonCode{v2.ReasonCodePolicyHookRejected}, []string{"approval workflow required"}
+		}),
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodePolicyHookRejected) {
+		t.Fatalf("expected policy hook reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsIssuerKeyOutsideValidityWindow(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	resolver := fixture.keyResolver.(v2.TrustBundleKeyResolver)
+	resolver.Bundle.Issuers[0].ValidUntil = fixture.referenceTime.Add(-1 * time.Minute)
+	fixture.keyResolver = resolver
+
+	engine := v2.NewEngine()
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeIssuerKeyOutOfWindow) {
+		t.Fatalf("expected issuer key out-of-window reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyWindowedReplayCacheAllowsReuseAfterWindow(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	cache := v2.NewInMemoryWindowReplayCache()
+
+	first := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+		ReplayCache:    cache,
+		ReplayWindow:   1 * time.Minute,
+	})
+	if first.Decision != v2.DecisionAuthorized {
+		t.Fatalf("first verify should authorize, got %s", first.Decision)
+	}
+
+	second := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime.Add(10 * time.Minute),
+		KeyResolver:    fixture.keyResolver,
+		ReplayCache:    cache,
+		ReplayWindow:   1 * time.Minute,
+	})
+	if second.Decision != v2.DecisionAuthorized {
+		t.Fatalf("expected second verify to authorize after replay window, got %s with reasons %+v", second.Decision, second.Reasons)
+	}
+	if second.ReplayStatus != v2.ReplayStatusFresh {
+		t.Fatalf("expected replay_status fresh, got %s", second.ReplayStatus)
 	}
 }
 

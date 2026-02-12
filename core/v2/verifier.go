@@ -2,6 +2,7 @@ package v2
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -54,7 +55,10 @@ type VerifyRequest struct {
 	ExpectedPolicyHash string
 	RevocationList     RevocationChecker
 	ReplayCache        ReplayCache
+	ReplayWindow       time.Duration
 	ChallengePolicy    ChallengePolicy
+	PolicyEvaluator    PolicyEvaluator
+	Transparency       TransparencyVerifier
 	IssuerPublicKey    ed25519.PublicKey // optional direct key
 	KeyResolver        IssuerKeyResolver // optional resolver, preferred for local bundle verify
 }
@@ -81,7 +85,16 @@ func (e *Engine) Verify(req VerifyRequest) VerificationResult {
 
 	issuerPub, issuerResolved, resolverErr := e.resolveIssuerKey(req)
 	if resolverErr != nil {
-		addReason(ReasonCodeIssuerKeyMissing, fmt.Sprintf("issuer key resolution failed: %v", resolverErr))
+		switch {
+		case errors.Is(resolverErr, ErrTrustBundleExpired):
+			addReason(ReasonCodeTrustBundleExpired, "trust bundle expired for reference_time")
+		case errors.Is(resolverErr, ErrTrustBundleSignatureInvalid):
+			addReason(ReasonCodeTrustBundleSignatureInvalid, "trust bundle signature invalid")
+		case errors.Is(resolverErr, ErrIssuerKeyOutOfWindow):
+			addReason(ReasonCodeIssuerKeyOutOfWindow, "issuer key is outside validity window")
+		default:
+			addReason(ReasonCodeIssuerKeyMissing, fmt.Sprintf("issuer key resolution failed: %v", resolverErr))
+		}
 		return result
 	}
 	if !issuerResolved {
@@ -145,6 +158,11 @@ func (e *Engine) Verify(req VerifyRequest) VerificationResult {
 	if req.ExpectedPolicyHash != "" && req.Capability.PolicyHash != req.ExpectedPolicyHash {
 		addReason(ReasonCodePolicyHashMismatch, "capability policy_hash does not match expected policy_hash")
 	}
+	if req.Transparency != nil && req.Capability.TransparencyRef != "" {
+		if err := req.Transparency.Verify(req.Capability.TransparencyRef, req.Capability.CapabilityID); err != nil {
+			addReason(ReasonCodeTransparencyInvalid, fmt.Sprintf("transparency linkage verification failed: %v", err))
+		}
+	}
 	if req.Capability.Delegation.Depth > req.Capability.Delegation.MaxDepth {
 		addReason(ReasonCodeDelegationDepthExceeded, "delegation depth exceeds max_depth")
 	}
@@ -159,9 +177,25 @@ func (e *Engine) Verify(req VerifyRequest) VerificationResult {
 	if req.ChallengePolicy != nil && req.ChallengePolicy.RequiresChallenge(req.Action.ActionType) && req.Action.ChallengeNonce == "" {
 		addReason(ReasonCodeChallengeRequired, "challenge_nonce required for high-risk action")
 	}
+	if req.PolicyEvaluator != nil {
+		policyCodes, policyReasons := normalizePolicyResults(req.PolicyEvaluator.Evaluate(req.Capability, req.Action))
+		for i := range policyCodes {
+			addReason(policyCodes[i], policyReasons[i])
+		}
+	}
 
 	if req.ReplayCache != nil {
-		if replay := req.ReplayCache.MarkAndCheck(req.Action.ActionID); replay {
+		replayDetected := false
+		if windowed, ok := req.ReplayCache.(WindowedReplayCache); ok {
+			window := req.ReplayWindow
+			if window <= 0 {
+				window = 5 * time.Minute
+			}
+			replayDetected = windowed.MarkAndCheckWithinWindow(req.Action.ActionID, req.Action.Timestamp, req.ReferenceTime, window)
+		} else {
+			replayDetected = req.ReplayCache.MarkAndCheck(req.Action.ActionID)
+		}
+		if replayDetected {
 			result.ReplayStatus = ReplayStatusReplay
 			addReason(ReasonCodeReplayDetected, "replay detected for action_id")
 		} else {

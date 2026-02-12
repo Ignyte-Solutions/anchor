@@ -87,11 +87,14 @@ const (
 	ReasonCodeAudienceMismatch            ReasonCode = "ERR_AUDIENCE_MISMATCH"
 	ReasonCodeDelegationDepthExceeded     ReasonCode = "ERR_DELEGATION_DEPTH_EXCEEDED"
 	ReasonCodePolicyHashMismatch          ReasonCode = "ERR_POLICY_HASH_MISMATCH"
+	ReasonCodePolicyHookRejected          ReasonCode = "ERR_POLICY_HOOK_REJECTED"
 	ReasonCodeConstraintViolation         ReasonCode = "ERR_CONSTRAINT_VIOLATION"
 	ReasonCodeChallengeRequired           ReasonCode = "ERR_CHALLENGE_REQUIRED"
 	ReasonCodeReplayDetected              ReasonCode = "ERR_REPLAY_DETECTED"
 	ReasonCodeTrustBundleExpired          ReasonCode = "ERR_TRUST_BUNDLE_EXPIRED"
 	ReasonCodeTrustBundleSignatureInvalid ReasonCode = "ERR_TRUST_BUNDLE_SIGNATURE_INVALID"
+	ReasonCodeIssuerKeyOutOfWindow        ReasonCode = "ERR_ISSUER_KEY_OUT_OF_WINDOW"
+	ReasonCodeTransparencyInvalid         ReasonCode = "ERR_TRANSPARENCY_INVALID"
 	ReasonCodeIssuerKeyMissing            ReasonCode = "ERR_ISSUER_KEY_MISSING"
 )
 

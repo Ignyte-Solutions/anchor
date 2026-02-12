@@ -16,6 +16,7 @@ Define open, deterministic authorization artifacts that can be verified locally.
 `verify(capability, action, trust_bundle, local_policy, replay_cache, now) -> VerificationResultV2`
 
 Verification MUST NOT require network calls.
+Network-assisted bundle refresh is optional, but verifier behavior must remain correct with cached bundles only.
 
 ## Mandatory checks
 
@@ -29,6 +30,10 @@ Verification MUST NOT require network calls.
 8. Constraint evidence checks.
 9. Replay checks.
 10. Policy hash checks when expected policy is configured.
+11. Challenge nonce enforcement for configured high-risk actions.
+12. Issuer key validity-window checks from trust bundle material.
+13. Optional transparency reference linkage checks.
+14. Optional local policy-hook evaluation for environment-specific controls.
 
 ## Output requirements
 

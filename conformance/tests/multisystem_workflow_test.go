@@ -1,0 +1,475 @@
+package tests
+
+import (
+	"crypto/ed25519"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	anchorcrypto "github.com/ignyte-solutions/ignyte-anchor-protocol/core/crypto"
+	"github.com/ignyte-solutions/ignyte-anchor-protocol/core/v2"
+)
+
+type signedContext struct {
+	capability     v2.Capability
+	action         v2.ActionEnvelope
+	agentPublicKey ed25519.PublicKey
+	keyResolver    v2.IssuerKeyResolver
+	referenceTime  time.Time
+}
+
+func TestAdvancedWorkflow_AllSystemsAuthorized(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 11, 0, 0, 0, time.UTC)
+
+	awsCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:        issuedAt,
+		ExpiresAt:       issuedAt.Add(30 * time.Minute),
+		ActionTime:      issuedAt.Add(1 * time.Minute),
+		Audience:        "aws:prod:s3",
+		ActionType:      "s3:PutObject",
+		AllowedActions:  []string{"s3:PutObject"},
+		APIScope:        "aws:s3",
+		Environment:     "prod",
+		ActionPayload:   `{"bucket":"release-artifacts","key":"v2.2.0/manifest.json","body":"ok","region":"us-east-1"}`,
+		ResourceUsage:   map[string]int64{"s3:objects": 1},
+		SpendUsage:      map[string]int64{"usd_cents": 12},
+		RateUsage:       map[string]int64{"requests_per_minute": 1},
+		ResourceLimits:  map[string]int64{"s3:objects": 2},
+		SpendLimits:     map[string]int64{"usd_cents": 500},
+		RateLimits:      map[string]int64{"requests_per_minute": 5},
+		ChallengeNonce:  "challenge-aws",
+		DelegationDepth: 0,
+		DelegationMax:   1,
+	})
+	socialCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(30 * time.Minute),
+		ActionTime:     issuedAt.Add(2 * time.Minute),
+		Audience:       "social:prod:publish",
+		ActionType:     "social:PublishPost",
+		AllowedActions: []string{"social:PublishPost"},
+		APIScope:       "social:publish",
+		Environment:    "prod",
+		ActionPayload:  `{"post_id":"post_2001","account_id":"ignyte-main","content":"release 2.2.0 live","visibility":"public"}`,
+		ResourceUsage:  map[string]int64{"social:posts": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"social:posts": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 20},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+		DelegationMax:  1,
+	})
+	bankCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(30 * time.Minute),
+		ActionTime:     issuedAt.Add(3 * time.Minute),
+		Audience:       "bank:prod:payments",
+		ActionType:     "bank:TransferFunds",
+		AllowedActions: []string{"bank:TransferFunds"},
+		APIScope:       "bank:payments",
+		Environment:    "prod",
+		ActionPayload:  `{"transfer_id":"tr_2201","from_account":"ops","to_account":"vendor","amount_cents":4200,"currency":"USD"}`,
+		ResourceUsage:  map[string]int64{"bank:transfers": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 4200},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"bank:transfers": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+		DelegationMax:  1,
+	})
+	supportCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(30 * time.Minute),
+		ActionTime:     issuedAt.Add(4 * time.Minute),
+		Audience:       "support:prod:tickets",
+		ActionType:     "support:CreateTicket",
+		AllowedActions: []string{"support:CreateTicket"},
+		APIScope:       "support:tickets",
+		Environment:    "prod",
+		ActionPayload:  `{"ticket_id":"sup_2201","customer_id":"cust_100","subject":"Release issue","priority":"high"}`,
+		ResourceUsage:  map[string]int64{"support:tickets": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"support:tickets": 5},
+		SpendLimits:    map[string]int64{"usd_cents": 100},
+		RateLimits:     map[string]int64{"requests_per_minute": 30},
+		DelegationMax:  1,
+	})
+	payoutCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(30 * time.Minute),
+		ActionTime:     issuedAt.Add(5 * time.Minute),
+		Audience:       "payments:prod:payouts",
+		ActionType:     "payments:CreatePayout",
+		AllowedActions: []string{"payments:CreatePayout"},
+		APIScope:       "payments:payouts",
+		Environment:    "prod",
+		ActionPayload:  `{"payout_id":"pay_2201","amount_cents":2600,"currency":"USD"}`,
+		ResourceUsage:  map[string]int64{"payments:payouts": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 2600},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"payments:payouts": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 5},
+		DelegationMax:  1,
+	})
+
+	aws := newFakeAWSService()
+	social := newFakeSocialService()
+	bank := newFakeBankService(map[string]int64{"ops": 100000, "vendor": 0})
+	support := newFakeSupportService()
+	payout := newFakePayoutService()
+
+	if result := aws.Execute(awsCtx); result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("aws expected AUTHORIZED, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+	if result := social.Execute(socialCtx); result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("social expected AUTHORIZED, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+	if result := bank.Execute(bankCtx); result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("bank expected AUTHORIZED, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+	if result := support.Execute(supportCtx); result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("support expected AUTHORIZED, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+	if result := payout.Execute(payoutCtx); result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("payout expected AUTHORIZED, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+}
+
+func TestAdvancedWorkflow_IsolatedFailure(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 12, 0, 0, 0, time.UTC)
+	socialCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(1 * time.Minute),
+		Audience:       "social:prod:publish",
+		ActionType:     "social:PublishPost",
+		AllowedActions: []string{"social:PublishPost"},
+		APIScope:       "social:publish",
+		Environment:    "prod",
+		ActionPayload:  `{"post_id":"post_bad","account_id":"ignyte-main","content":"this is a leak","visibility":"public"}`,
+		ResourceUsage:  map[string]int64{"social:posts": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"social:posts": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 20},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+	})
+	bankCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(2 * time.Minute),
+		Audience:       "bank:prod:payments",
+		ActionType:     "bank:TransferFunds",
+		AllowedActions: []string{"bank:TransferFunds"},
+		APIScope:       "bank:payments",
+		Environment:    "prod",
+		ActionPayload:  `{"transfer_id":"tr_ok","from_account":"ops","to_account":"vendor","amount_cents":1000,"currency":"USD"}`,
+		ResourceUsage:  map[string]int64{"bank:transfers": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1000},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"bank:transfers": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+	})
+
+	social := newFakeSocialService()
+	bank := newFakeBankService(map[string]int64{"ops": 100000, "vendor": 0})
+	socialResult := social.Execute(socialCtx)
+	bankResult := bank.Execute(bankCtx)
+	if socialResult.Decision != v2.DecisionRejected {
+		t.Fatalf("expected social rejected, got %s", socialResult.Decision)
+	}
+	if !containsReasonCode(socialResult.ReasonCodes, v2.ReasonCodePolicyHookRejected) {
+		t.Fatalf("expected policy hook rejection code, got %v", socialResult.ReasonCodes)
+	}
+	if bankResult.Decision != v2.DecisionAuthorized {
+		t.Fatalf("expected bank authorized, got %s reasons=%v", bankResult.Decision, bankResult.Reasons)
+	}
+}
+
+func TestAdvancedWorkflow_CrossCapabilityMisuseRejected(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 12, 30, 0, 0, time.UTC)
+	bankCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(1 * time.Minute),
+		Audience:       "bank:prod:payments",
+		ActionType:     "social:PublishPost",
+		AllowedActions: []string{"bank:TransferFunds"},
+		APIScope:       "bank:payments",
+		Environment:    "prod",
+		ActionPayload:  `{"post_id":"bad_cross","account_id":"ignyte-main","content":"should fail","visibility":"public"}`,
+		ResourceUsage:  map[string]int64{"bank:transfers": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 100},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"bank:transfers": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+	})
+
+	social := newFakeSocialService()
+	result := social.Execute(bankCtx)
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED for cross capability misuse, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeActionNotAllowed) {
+		t.Fatalf("expected action-not-allowed reason code, got %v", result.ReasonCodes)
+	}
+}
+
+type signedContextInput struct {
+	IssuedAt        time.Time
+	ExpiresAt       time.Time
+	ActionTime      time.Time
+	Audience        string
+	ActionType      string
+	AllowedActions  []string
+	APIScope        string
+	Environment     string
+	ActionPayload   string
+	ResourceUsage   map[string]int64
+	SpendUsage      map[string]int64
+	RateUsage       map[string]int64
+	ResourceLimits  map[string]int64
+	SpendLimits     map[string]int64
+	RateLimits      map[string]int64
+	ChallengeNonce  string
+	DelegationDepth int
+	DelegationMax   int
+}
+
+func buildSignedContext(t *testing.T, input signedContextInput) signedContext {
+	t.Helper()
+	if input.DelegationMax == 0 {
+		input.DelegationMax = 1
+	}
+	issuerPublicKey, issuerPrivateKey, err := anchorcrypto.GenerateEd25519KeyPair()
+	if err != nil {
+		t.Fatalf("generate issuer keypair: %v", err)
+	}
+	agentPublicKey, agentPrivateKey, err := anchorcrypto.GenerateEd25519KeyPair()
+	if err != nil {
+		t.Fatalf("generate agent keypair: %v", err)
+	}
+	issuerID, err := anchorcrypto.DeriveIDFromPublicKey(issuerPublicKey)
+	if err != nil {
+		t.Fatalf("derive issuer id: %v", err)
+	}
+	agentID, err := anchorcrypto.DeriveIDFromPublicKey(agentPublicKey)
+	if err != nil {
+		t.Fatalf("derive agent id: %v", err)
+	}
+	capability := v2.Capability{
+		Version:        v2.Version,
+		IssuerID:       issuerID,
+		IssuerKID:      "k1",
+		AgentID:        agentID,
+		Audience:       input.Audience,
+		AllowedActions: append([]string(nil), input.AllowedActions...),
+		Constraints: v2.ConstraintSet{
+			ResourceLimits:         cloneMap(input.ResourceLimits),
+			SpendLimits:            cloneMap(input.SpendLimits),
+			APIScopes:              []string{input.APIScope},
+			RateLimits:             cloneMap(input.RateLimits),
+			EnvironmentConstraints: []string{input.Environment},
+		},
+		Delegation:      v2.Delegation{Depth: input.DelegationDepth, MaxDepth: input.DelegationMax},
+		PolicyHash:      "policy-hash-fixed",
+		TransparencyRef: "tr-log://test-entry",
+		IssuedAt:        input.IssuedAt,
+		ExpiresAt:       input.ExpiresAt,
+		Nonce:           "nonce-capability",
+	}
+	if err := v2.SignCapability(&capability, issuerPrivateKey); err != nil {
+		t.Fatalf("sign capability: %v", err)
+	}
+	action := v2.ActionEnvelope{
+		AgentID:       agentID,
+		CapabilityID:  capability.CapabilityID,
+		Audience:      input.Audience,
+		ActionType:    input.ActionType,
+		ActionPayload: json.RawMessage(input.ActionPayload),
+		ConstraintEvidence: v2.ConstraintEvidence{
+			ResourceUsage: cloneMap(input.ResourceUsage),
+			SpendUsage:    cloneMap(input.SpendUsage),
+			RateUsage:     cloneMap(input.RateUsage),
+			Environment:   input.Environment,
+			APIScope:      input.APIScope,
+		},
+		ChallengeNonce: input.ChallengeNonce,
+		Timestamp:      input.ActionTime,
+	}
+	if err := v2.SignAction(&action, agentPrivateKey); err != nil {
+		t.Fatalf("sign action: %v", err)
+	}
+	bundle := v2.TrustBundle{
+		BundleID:           "bundle-1",
+		IssuedAt:           input.IssuedAt,
+		ExpiresAt:          input.ExpiresAt.Add(2 * time.Hour),
+		Signature:          "placeholder",
+		SignerPublicKeyKID: "bundle-signer",
+		Issuers: []v2.TrustBundleIssuer{{
+			IssuerID:      issuerID,
+			IssuerKID:     "k1",
+			PublicKey:     anchorcrypto.PublicKeyToBase64(issuerPublicKey),
+			ValidFrom:     input.IssuedAt.Add(-1 * time.Hour),
+			ValidUntil:    input.ExpiresAt.Add(1 * time.Hour),
+			AssuranceTier: "ORG_VERIFIED",
+		}},
+	}
+	return signedContext{
+		capability:     capability,
+		action:         action,
+		agentPublicKey: agentPublicKey,
+		keyResolver:    v2.TrustBundleKeyResolver{Bundle: bundle},
+		referenceTime:  input.ActionTime,
+	}
+}
+
+func cloneMap(input map[string]int64) map[string]int64 {
+	out := make(map[string]int64, len(input))
+	for k, v := range input {
+		out[k] = v
+	}
+	return out
+}
+
+func containsReasonCode(codes []v2.ReasonCode, target v2.ReasonCode) bool {
+	for _, code := range codes {
+		if code == target {
+			return true
+		}
+	}
+	return false
+}
+
+type fakeAWSService struct {
+	engine *v2.Engine
+}
+
+func newFakeAWSService() *fakeAWSService { return &fakeAWSService{engine: v2.NewEngine()} }
+
+func (s *fakeAWSService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+		ReplayCache:    v2.NewInMemoryReplayCache(),
+	})
+	if result.Decision != v2.DecisionAuthorized {
+		return result
+	}
+	var payload struct {
+		Region string `json:"region"`
+	}
+	_ = json.Unmarshal(ctx.action.ActionPayload, &payload)
+	if payload.Region != "us-east-1" && payload.Region != "us-west-2" {
+		result.Decision = v2.DecisionRejected
+		result.ReasonCodes = append(result.ReasonCodes, v2.ReasonCodePolicyHookRejected)
+		result.Reasons = append(result.Reasons, "unsupported aws region")
+	}
+	return result
+}
+
+type fakeSocialService struct {
+	engine *v2.Engine
+}
+
+func newFakeSocialService() *fakeSocialService { return &fakeSocialService{engine: v2.NewEngine()} }
+
+func (s *fakeSocialService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+		PolicyEvaluator: v2.FuncPolicyEvaluator(func(_ v2.Capability, action v2.ActionEnvelope) ([]v2.ReasonCode, []string) {
+			if strings.Contains(strings.ToLower(string(action.ActionPayload)), "leak") {
+				return []v2.ReasonCode{v2.ReasonCodePolicyHookRejected}, []string{"content failed moderation"}
+			}
+			return nil, nil
+		}),
+	})
+	return result
+}
+
+type fakeBankService struct {
+	engine   *v2.Engine
+	balances map[string]int64
+}
+
+func newFakeBankService(balances map[string]int64) *fakeBankService {
+	copyBalances := make(map[string]int64, len(balances))
+	for k, v := range balances {
+		copyBalances[k] = v
+	}
+	return &fakeBankService{engine: v2.NewEngine(), balances: copyBalances}
+}
+
+func (s *fakeBankService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+	})
+	if result.Decision != v2.DecisionAuthorized {
+		return result
+	}
+	var payload struct {
+		FromAccount string `json:"from_account"`
+		ToAccount   string `json:"to_account"`
+		AmountCents int64  `json:"amount_cents"`
+	}
+	_ = json.Unmarshal(ctx.action.ActionPayload, &payload)
+	if s.balances[payload.FromAccount] < payload.AmountCents {
+		result.Decision = v2.DecisionRejected
+		result.ReasonCodes = append(result.ReasonCodes, v2.ReasonCodePolicyHookRejected)
+		result.Reasons = append(result.Reasons, "insufficient funds")
+		return result
+	}
+	s.balances[payload.FromAccount] -= payload.AmountCents
+	s.balances[payload.ToAccount] += payload.AmountCents
+	return result
+}
+
+type fakeSupportService struct {
+	engine *v2.Engine
+}
+
+func newFakeSupportService() *fakeSupportService { return &fakeSupportService{engine: v2.NewEngine()} }
+
+func (s *fakeSupportService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+	})
+	return result
+}
+
+type fakePayoutService struct {
+	engine *v2.Engine
+}
+
+func newFakePayoutService() *fakePayoutService { return &fakePayoutService{engine: v2.NewEngine()} }
+
+func (s *fakePayoutService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+	})
+	return result
+}
