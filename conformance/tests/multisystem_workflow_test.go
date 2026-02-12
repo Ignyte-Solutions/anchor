@@ -112,6 +112,7 @@ func TestAdvancedWorkflow_AllSystemsAuthorized(t *testing.T) {
 		ResourceLimits: map[string]int64{"payments:payouts": 2},
 		SpendLimits:    map[string]int64{"usd_cents": 5000},
 		RateLimits:     map[string]int64{"requests_per_minute": 5},
+		ChallengeNonce: "challenge-payout",
 		DelegationMax:  1,
 	})
 
@@ -217,6 +218,174 @@ func TestAdvancedWorkflow_CrossCapabilityMisuseRejected(t *testing.T) {
 	}
 	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeActionNotAllowed) {
 		t.Fatalf("expected action-not-allowed reason code, got %v", result.ReasonCodes)
+	}
+}
+
+func TestAdvancedWorkflow_ReplayAndPolicyRejections(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 13, 30, 0, 0, time.UTC)
+	awsCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(1 * time.Minute),
+		Audience:       "aws:prod:s3",
+		ActionType:     "s3:PutObject",
+		AllowedActions: []string{"s3:PutObject"},
+		APIScope:       "aws:s3",
+		Environment:    "prod",
+		ActionPayload:  `{"bucket":"deployments","key":"release.txt","region":"us-east-1"}`,
+		ResourceUsage:  map[string]int64{"s3:objects": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 10},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"s3:objects": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 100},
+		RateLimits:     map[string]int64{"requests_per_minute": 5},
+	})
+	aws := newFakeAWSService()
+	first := aws.Execute(awsCtx)
+	if first.Decision != v2.DecisionAuthorized {
+		t.Fatalf("expected first aws execution authorized, got %s reasons=%v", first.Decision, first.Reasons)
+	}
+	second := aws.Execute(awsCtx)
+	if second.Decision != v2.DecisionRejected {
+		t.Fatalf("expected replay rejection, got %s", second.Decision)
+	}
+	if !containsReasonCode(second.ReasonCodes, v2.ReasonCodeReplayDetected) {
+		t.Fatalf("expected replay reason code, got %v", second.ReasonCodes)
+	}
+
+	socialCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(2 * time.Minute),
+		Audience:       "social:prod:publish",
+		ActionType:     "social:PublishPost",
+		AllowedActions: []string{"social:PublishPost"},
+		APIScope:       "social:publish",
+		Environment:    "prod",
+		ActionPayload:  `{"post_id":"post_9","content":"leak customer token now"}`,
+		ResourceUsage:  map[string]int64{"social:posts": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"social:posts": 3},
+		SpendLimits:    map[string]int64{"usd_cents": 20},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+	})
+	social := newFakeSocialService()
+	socialResult := social.Execute(socialCtx)
+	if socialResult.Decision != v2.DecisionRejected {
+		t.Fatalf("expected social moderation rejection, got %s", socialResult.Decision)
+	}
+	if !containsReasonCode(socialResult.ReasonCodes, v2.ReasonCodePolicyHookRejected) {
+		t.Fatalf("expected policy-hook rejection code, got %v", socialResult.ReasonCodes)
+	}
+
+	bankCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(3 * time.Minute),
+		Audience:       "bank:prod:payments",
+		ActionType:     "bank:TransferFunds",
+		AllowedActions: []string{"bank:TransferFunds"},
+		APIScope:       "bank:payments",
+		Environment:    "prod",
+		ActionPayload:  `{"from_account":"ops","to_account":"vendor","amount_cents":999999}`,
+		ResourceUsage:  map[string]int64{"bank:transfers": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 999999},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"bank:transfers": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 1000000},
+		RateLimits:     map[string]int64{"requests_per_minute": 10},
+	})
+	bank := newFakeBankService(map[string]int64{"ops": 5000, "vendor": 0})
+	bankResult := bank.Execute(bankCtx)
+	if bankResult.Decision != v2.DecisionRejected {
+		t.Fatalf("expected insufficient funds rejection, got %s", bankResult.Decision)
+	}
+	if !containsReasonCode(bankResult.ReasonCodes, v2.ReasonCodePolicyHookRejected) {
+		t.Fatalf("expected policy-hook rejection code for bank, got %v", bankResult.ReasonCodes)
+	}
+}
+
+func TestAdvancedWorkflow_AdditionalSystemsHealthcareAndLogistics(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 14, 0, 0, 0, time.UTC)
+	healthcareCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(1 * time.Minute),
+		Audience:       "healthcare:prod:ehr",
+		ActionType:     "healthcare:UpdateMedication",
+		AllowedActions: []string{"healthcare:UpdateMedication"},
+		APIScope:       "healthcare:ehr",
+		Environment:    "prod",
+		ActionPayload:  `{"patient_id":"pat_1","medication":"atorvastatin","dose_mg":20}`,
+		ResourceUsage:  map[string]int64{"healthcare:ehr_updates": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 0},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"healthcare:ehr_updates": 3},
+		SpendLimits:    map[string]int64{"usd_cents": 100},
+		RateLimits:     map[string]int64{"requests_per_minute": 5},
+	})
+	logisticsCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(2 * time.Minute),
+		Audience:       "logistics:prod:shipments",
+		ActionType:     "logistics:CreateShipment",
+		AllowedActions: []string{"logistics:CreateShipment"},
+		APIScope:       "logistics:shipments",
+		Environment:    "prod",
+		ActionPayload:  `{"shipment_id":"shp_1","destination_country":"KP","weight_kg":2}`,
+		ResourceUsage:  map[string]int64{"logistics:shipments": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 2500},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"logistics:shipments": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 8},
+	})
+
+	healthcare := newFakeHealthcareService()
+	logistics := newFakeLogisticsService()
+
+	healthResult := healthcare.Execute(healthcareCtx)
+	if healthResult.Decision != v2.DecisionAuthorized {
+		t.Fatalf("expected healthcare authorized, got %s reasons=%v", healthResult.Decision, healthResult.Reasons)
+	}
+	logisticsResult := logistics.Execute(logisticsCtx)
+	if logisticsResult.Decision != v2.DecisionRejected {
+		t.Fatalf("expected logistics rejection, got %s", logisticsResult.Decision)
+	}
+	if !containsReasonCode(logisticsResult.ReasonCodes, v2.ReasonCodePolicyHookRejected) {
+		t.Fatalf("expected policy-hook rejection code for logistics, got %v", logisticsResult.ReasonCodes)
+	}
+}
+
+func TestAdvancedWorkflow_PayoutRequiresChallenge(t *testing.T) {
+	issuedAt := time.Date(2026, 2, 13, 15, 0, 0, 0, time.UTC)
+	payoutCtx := buildSignedContext(t, signedContextInput{
+		IssuedAt:       issuedAt,
+		ExpiresAt:      issuedAt.Add(20 * time.Minute),
+		ActionTime:     issuedAt.Add(1 * time.Minute),
+		Audience:       "payments:prod:payouts",
+		ActionType:     "payments:CreatePayout",
+		AllowedActions: []string{"payments:CreatePayout"},
+		APIScope:       "payments:payouts",
+		Environment:    "prod",
+		ActionPayload:  `{"payout_id":"pay_10","amount_cents":1900,"currency":"USD"}`,
+		ResourceUsage:  map[string]int64{"payments:payouts": 1},
+		SpendUsage:     map[string]int64{"usd_cents": 1900},
+		RateUsage:      map[string]int64{"requests_per_minute": 1},
+		ResourceLimits: map[string]int64{"payments:payouts": 2},
+		SpendLimits:    map[string]int64{"usd_cents": 5000},
+		RateLimits:     map[string]int64{"requests_per_minute": 5},
+		ChallengeNonce: "",
+	})
+	payout := newFakePayoutService()
+	result := payout.Execute(payoutCtx)
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected payout rejection when challenge nonce missing, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeChallengeRequired) {
+		t.Fatalf("expected challenge required reason code, got %v", result.ReasonCodes)
 	}
 }
 
@@ -347,10 +516,16 @@ func containsReasonCode(codes []v2.ReasonCode, target v2.ReasonCode) bool {
 }
 
 type fakeAWSService struct {
-	engine *v2.Engine
+	engine      *v2.Engine
+	replayCache v2.ReplayCache
 }
 
-func newFakeAWSService() *fakeAWSService { return &fakeAWSService{engine: v2.NewEngine()} }
+func newFakeAWSService() *fakeAWSService {
+	return &fakeAWSService{
+		engine:      v2.NewEngine(),
+		replayCache: v2.NewInMemoryReplayCache(),
+	}
+}
 
 func (s *fakeAWSService) Execute(ctx signedContext) v2.VerificationResult {
 	result := s.engine.Verify(v2.VerifyRequest{
@@ -359,7 +534,7 @@ func (s *fakeAWSService) Execute(ctx signedContext) v2.VerificationResult {
 		AgentPublicKey: ctx.agentPublicKey,
 		ReferenceTime:  ctx.referenceTime,
 		KeyResolver:    ctx.keyResolver,
-		ReplayCache:    v2.NewInMemoryReplayCache(),
+		ReplayCache:    s.replayCache,
 	})
 	if result.Decision != v2.DecisionAuthorized {
 		return result
@@ -470,6 +645,72 @@ func (s *fakePayoutService) Execute(ctx signedContext) v2.VerificationResult {
 		AgentPublicKey: ctx.agentPublicKey,
 		ReferenceTime:  ctx.referenceTime,
 		KeyResolver:    ctx.keyResolver,
+		ChallengePolicy: v2.StaticChallengePolicy{Required: map[string]struct{}{
+			"payments:CreatePayout": {},
+		}},
 	})
+	return result
+}
+
+type fakeHealthcareService struct {
+	engine *v2.Engine
+}
+
+func newFakeHealthcareService() *fakeHealthcareService {
+	return &fakeHealthcareService{engine: v2.NewEngine()}
+}
+
+func (s *fakeHealthcareService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+	})
+	if result.Decision != v2.DecisionAuthorized {
+		return result
+	}
+	var payload struct {
+		Medication string `json:"medication"`
+	}
+	_ = json.Unmarshal(ctx.action.ActionPayload, &payload)
+	if strings.EqualFold(payload.Medication, "UNAPPROVED_TRIAL_DRUG") {
+		result.Decision = v2.DecisionRejected
+		result.ReasonCodes = append(result.ReasonCodes, v2.ReasonCodePolicyHookRejected)
+		result.Reasons = append(result.Reasons, "medication not approved by policy")
+	}
+	return result
+}
+
+type fakeLogisticsService struct {
+	engine *v2.Engine
+}
+
+func newFakeLogisticsService() *fakeLogisticsService {
+	return &fakeLogisticsService{engine: v2.NewEngine()}
+}
+
+func (s *fakeLogisticsService) Execute(ctx signedContext) v2.VerificationResult {
+	result := s.engine.Verify(v2.VerifyRequest{
+		Capability:     ctx.capability,
+		Action:         ctx.action,
+		AgentPublicKey: ctx.agentPublicKey,
+		ReferenceTime:  ctx.referenceTime,
+		KeyResolver:    ctx.keyResolver,
+	})
+	if result.Decision != v2.DecisionAuthorized {
+		return result
+	}
+	var payload struct {
+		DestinationCountry string `json:"destination_country"`
+	}
+	_ = json.Unmarshal(ctx.action.ActionPayload, &payload)
+	switch strings.ToUpper(payload.DestinationCountry) {
+	case "KP", "IR", "SY":
+		result.Decision = v2.DecisionRejected
+		result.ReasonCodes = append(result.ReasonCodes, v2.ReasonCodePolicyHookRejected)
+		result.Reasons = append(result.Reasons, "destination blocked by sanctions policy")
+	}
 	return result
 }
