@@ -1,10 +1,14 @@
 # SDKs
 
-This repository includes protocol SDK starter clients for:
+This repository includes protocol SDKs for:
 
 - Go
 - TypeScript
 - Python
 - Java
 
-These clients are transport helpers for integration against hosted APIs. Protocol-local verification logic lives in `core/v2`.
+Each SDK includes:
+- Hosted API transport helper client.
+- Offline/local verifier surface that enforces audience binding, delegation depth, policy hash checks, constraint checks, challenge policy, replay signals, and deterministic reason-code output.
+
+For non-Go SDKs, signature and key-identity math are intentionally injected through pluggable crypto interfaces so host applications can bind to approved crypto providers without changing verifier semantics.

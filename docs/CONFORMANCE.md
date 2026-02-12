@@ -16,3 +16,5 @@ Ensure equivalent verification outcomes across implementations.
 ## Pass criteria
 
 A conformant implementation must match expected `decision` and `reason_codes` for all official vectors.
+
+Language SDK offline verifiers must preserve reason-code ordering and replay status semantics defined by the Go reference engine.
