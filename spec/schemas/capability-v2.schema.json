@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol.ignyteanchor.com/schemas/capability-v2.schema.json",
+  "title": "CapabilityV2",
+  "type": "object",
+  "required": [
+    "version",
+    "capability_id",
+    "issuer_id",
+    "issuer_kid",
+    "agent_id",
+    "audience",
+    "allowed_actions",
+    "constraints",
+    "delegation",
+    "policy_hash",
+    "issued_at",
+    "expires_at",
+    "nonce",
+    "signature"
+  ],
+  "properties": {
+    "version": {"const": 2},
+    "capability_id": {"type": "string"},
+    "issuer_id": {"type": "string"},
+    "issuer_kid": {"type": "string"},
+    "agent_id": {"type": "string"},
+    "audience": {"type": "string"},
+    "allowed_actions": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "constraints": {
+      "type": "object",
+      "required": ["resource_limits", "spend_limits", "api_scopes", "rate_limits", "environment_constraints"],
+      "properties": {
+        "resource_limits": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "spend_limits": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "api_scopes": {"type": "array", "items": {"type": "string"}},
+        "rate_limits": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "environment_constraints": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "delegation": {
+      "type": "object",
+      "required": ["depth", "max_depth"],
+      "properties": {
+        "parent_capability_id": {"type": "string"},
+        "depth": {"type": "integer", "minimum": 0},
+        "max_depth": {"type": "integer", "minimum": 0}
+      }
+    },
+    "policy_hash": {"type": "string"},
+    "transparency_ref": {"type": "string"},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "nonce": {"type": "string"},
+    "signature": {"type": "string"}
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://protocol.ignyteanchor.com/schemas/action-envelope-v2.schema.json",
+  "title": "ActionEnvelopeV2",
+  "type": "object",
+  "required": [
+    "action_id",
+    "agent_id",
+    "capability_id",
+    "audience",
+    "action_type",
+    "action_payload",
+    "constraint_evidence",
+    "timestamp",
+    "agent_signature"
+  ],
+  "properties": {
+    "action_id": {"type": "string"},
+    "agent_id": {"type": "string"},
+    "capability_id": {"type": "string"},
+    "audience": {"type": "string"},
+    "action_type": {"type": "string"},
+    "action_payload": {"type": "object"},
+    "constraint_evidence": {
+      "type": "object",
+      "required": ["resource_usage", "spend_usage", "rate_usage", "environment", "api_scope"],
+      "properties": {
+        "resource_usage": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "spend_usage": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "rate_usage": {"type": "object", "additionalProperties": {"type": "integer"}},
+        "environment": {"type": "string"},
+        "api_scope": {"type": "string"}
+      }
+    },
+    "challenge_nonce": {"type": "string"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "agent_signature": {"type": "string"}
+  }
+}

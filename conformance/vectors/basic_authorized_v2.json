@@ -1,0 +1,6 @@
+{
+  "name": "basic_authorized_v2",
+  "description": "Valid v2 capability + action should authorize with no rejection reason codes",
+  "expected_decision": "AUTHORIZED",
+  "expected_reason_codes": []
+}
