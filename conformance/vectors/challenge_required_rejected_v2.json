@@ -1,0 +1,6 @@
+{
+  "name": "challenge_required_rejected_v2",
+  "description": "High-risk action requires challenge nonce and is rejected when missing",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_CHALLENGE_REQUIRED"]
+}

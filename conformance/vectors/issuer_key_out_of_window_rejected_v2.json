@@ -1,0 +1,6 @@
+{
+  "name": "issuer_key_out_of_window_rejected_v2",
+  "description": "Trust-bundle key exists but is outside validity window",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_ISSUER_KEY_OUT_OF_WINDOW"]
+}

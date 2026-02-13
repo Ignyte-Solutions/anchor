@@ -1,0 +1,6 @@
+{
+  "name": "delegation_depth_exceeded_rejected_v2",
+  "description": "Capability delegation depth exceeds max depth",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_DELEGATION_DEPTH_EXCEEDED"]
+}

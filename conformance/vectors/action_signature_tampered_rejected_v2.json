@@ -1,0 +1,6 @@
+{
+  "name": "action_signature_tampered_rejected_v2",
+  "description": "Action payload tampered after signing should fail signature verification",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_ACTION_SIGNATURE_INVALID"]
+}

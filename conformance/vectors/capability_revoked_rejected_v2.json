@@ -1,0 +1,6 @@
+{
+  "name": "capability_revoked_rejected_v2",
+  "description": "Capability appears in revocation feed and must be rejected",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_CAPABILITY_REVOKED"]
+}

@@ -1,0 +1,6 @@
+{
+  "name": "policy_hash_mismatch_rejected_v2",
+  "description": "Verifier expected policy hash differs from capability policy hash",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_POLICY_HASH_MISMATCH"]
+}

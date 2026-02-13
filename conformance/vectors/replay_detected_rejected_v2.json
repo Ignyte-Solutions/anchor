@@ -1,0 +1,6 @@
+{
+  "name": "replay_detected_rejected_v2",
+  "description": "Second attempt with same action id should be rejected as replay",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_REPLAY_DETECTED"]
+}

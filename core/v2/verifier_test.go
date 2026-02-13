@@ -211,6 +211,138 @@ func TestVerifyWindowedReplayCacheAllowsReuseAfterWindow(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsDelegationDepthExceeded(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	fixture.capability.Delegation.Depth = 2
+	fixture.capability.Delegation.MaxDepth = 1
+	engine := v2.NewEngine()
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeDelegationDepthExceeded) {
+		t.Fatalf("expected delegation depth reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsPolicyHashMismatch(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:         fixture.capability,
+		Action:             fixture.action,
+		AgentPublicKey:     fixture.agentPublicKey,
+		ReferenceTime:      fixture.referenceTime,
+		KeyResolver:        fixture.keyResolver,
+		ExpectedPolicyHash: "policy-hash-v2-other",
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodePolicyHashMismatch) {
+		t.Fatalf("expected policy hash mismatch reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsRevokedCapability(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	revoked := map[string]struct{}{fixture.capability.CapabilityID: {}}
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+		RevocationList: v2.StaticRevocationList{Revoked: revoked},
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeCapabilityRevoked) {
+		t.Fatalf("expected capability revoked reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsTamperedActionSignature(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	fixture.action.ActionPayload = json.RawMessage(`{"bucket":"my-bucket","key":"tampered.txt"}`)
+
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeActionSignatureInvalid) {
+		t.Fatalf("expected action signature invalid reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyRejectsTamperedCapabilitySignature(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+	fixture.capability.PolicyHash = "tampered-policy-hash"
+
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:     fixture.capability,
+		Action:         fixture.action,
+		AgentPublicKey: fixture.agentPublicKey,
+		ReferenceTime:  fixture.referenceTime,
+		KeyResolver:    fixture.keyResolver,
+	})
+	if result.Decision != v2.DecisionRejected {
+		t.Fatalf("expected REJECTED, got %s", result.Decision)
+	}
+	if !containsReasonCode(result.ReasonCodes, v2.ReasonCodeCapabilitySignatureInvalid) {
+		t.Fatalf("expected capability signature invalid reason code, got %+v", result.ReasonCodes)
+	}
+}
+
+func TestVerifyAuthorizesAfterIssuerKIDRotation(t *testing.T) {
+	fixture := buildFixture(t, fixtureInput{})
+	engine := v2.NewEngine()
+
+	rotatedCapability := fixture.capability
+	rotatedCapability.IssuerKID = "k2"
+	if err := v2.SignCapability(&rotatedCapability, fixture.issuerPrivateKey); err != nil {
+		t.Fatalf("resign rotated capability: %v", err)
+	}
+	rotatedAction := fixture.action
+	rotatedAction.CapabilityID = rotatedCapability.CapabilityID
+	if err := v2.SignAction(&rotatedAction, fixture.agentPrivateKey); err != nil {
+		t.Fatalf("resign rotated action: %v", err)
+	}
+
+	resolver := fixture.keyResolver.(v2.TrustBundleKeyResolver)
+	rotatedIssuer := resolver.Bundle.Issuers[0]
+	rotatedIssuer.IssuerKID = "k2"
+	resolver.Bundle.Issuers = append(resolver.Bundle.Issuers, rotatedIssuer)
+
+	result := engine.Verify(v2.VerifyRequest{
+		Capability:       rotatedCapability,
+		Action:           rotatedAction,
+		AgentPublicKey:   fixture.agentPublicKey,
+		ReferenceTime:    fixture.referenceTime,
+		ExpectedAudience: "aws:prod:s3",
+		KeyResolver:      resolver,
+	})
+	if result.Decision != v2.DecisionAuthorized {
+		t.Fatalf("expected AUTHORIZED after key rotation, got %s reasons=%v", result.Decision, result.Reasons)
+	}
+}
+
 type fixtureInput struct {
 	audience       string
 	actionType     string
@@ -218,11 +350,13 @@ type fixtureInput struct {
 }
 
 type verifyFixture struct {
-	capability     v2.Capability
-	action         v2.ActionEnvelope
-	agentPublicKey []byte
-	referenceTime  time.Time
-	keyResolver    v2.IssuerKeyResolver
+	capability       v2.Capability
+	action           v2.ActionEnvelope
+	agentPublicKey   []byte
+	agentPrivateKey  []byte
+	issuerPrivateKey []byte
+	referenceTime    time.Time
+	keyResolver      v2.IssuerKeyResolver
 }
 
 func buildFixture(t *testing.T, input fixtureInput) verifyFixture {
@@ -317,11 +451,13 @@ func buildFixture(t *testing.T, input fixtureInput) verifyFixture {
 		},
 	}
 	return verifyFixture{
-		capability:     capability,
-		action:         action,
-		agentPublicKey: bytes.Clone(agentPublicKey),
-		referenceTime:  action.Timestamp,
-		keyResolver:    v2.TrustBundleKeyResolver{Bundle: bundle},
+		capability:       capability,
+		action:           action,
+		agentPublicKey:   bytes.Clone(agentPublicKey),
+		agentPrivateKey:  bytes.Clone(agentPrivateKey),
+		issuerPrivateKey: bytes.Clone(issuerPrivateKey),
+		referenceTime:    action.Timestamp,
+		keyResolver:      v2.TrustBundleKeyResolver{Bundle: bundle},
 	}
 }
 

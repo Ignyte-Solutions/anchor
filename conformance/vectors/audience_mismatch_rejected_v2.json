@@ -1,0 +1,6 @@
+{
+  "name": "audience_mismatch_rejected_v2",
+  "description": "Action audience differs from expected audience and must be rejected",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_AUDIENCE_MISMATCH"]
+}

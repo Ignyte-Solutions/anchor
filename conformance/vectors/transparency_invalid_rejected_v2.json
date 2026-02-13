@@ -1,0 +1,6 @@
+{
+  "name": "transparency_invalid_rejected_v2",
+  "description": "Transparency verifier rejects transparency reference proof",
+  "expected_decision": "REJECTED",
+  "expected_reason_codes": ["ERR_TRANSPARENCY_INVALID"]
+}
