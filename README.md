@@ -37,6 +37,7 @@ Ignyte Anchor Protocol is designed around this model:
 - `conformance/`: vectors, fixtures, and parity tests
 - `examples/`: integration examples for local verification
 - `docs/`: normative spec, threat model, trust model, governance
+- `examples/README.md`: runnable example catalog
 
 ## Quick start
 
@@ -55,6 +56,12 @@ Run the local verification example:
 
 ```bash
 go run ./examples/local-verify
+```
+
+Run the trust bundle fallback example:
+
+```bash
+go run ./examples/trust-bundle-fallback
 ```
 
 ## v2 protocol artifacts

@@ -478,7 +478,6 @@ func buildSignedContext(t *testing.T, input signedContextInput) signedContext {
 		BundleID:           "bundle-1",
 		IssuedAt:           input.IssuedAt,
 		ExpiresAt:          input.ExpiresAt.Add(2 * time.Hour),
-		Signature:          "placeholder",
 		SignerPublicKeyKID: "bundle-signer",
 		Issuers: []v2.TrustBundleIssuer{{
 			IssuerID:      issuerID,
@@ -488,6 +487,9 @@ func buildSignedContext(t *testing.T, input signedContextInput) signedContext {
 			ValidUntil:    input.ExpiresAt.Add(1 * time.Hour),
 			AssuranceTier: "ORG_VERIFIED",
 		}},
+	}
+	if err := v2.SignTrustBundle(&bundle, issuerPrivateKey); err != nil {
+		t.Fatalf("sign trust bundle: %v", err)
 	}
 	return signedContext{
 		capability:     capability,

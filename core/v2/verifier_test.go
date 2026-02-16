@@ -437,7 +437,6 @@ func buildFixture(t *testing.T, input fixtureInput) verifyFixture {
 		BundleID:           "bundle-1",
 		IssuedAt:           issuedAt,
 		ExpiresAt:          issuedAt.Add(24 * time.Hour),
-		Signature:          "placeholder",
 		SignerPublicKeyKID: "bundle-signer",
 		Issuers: []v2.TrustBundleIssuer{
 			{
@@ -449,6 +448,9 @@ func buildFixture(t *testing.T, input fixtureInput) verifyFixture {
 				AssuranceTier: "ORG_VERIFIED",
 			},
 		},
+	}
+	if err := v2.SignTrustBundle(&bundle, issuerPrivateKey); err != nil {
+		t.Fatalf("sign trust bundle: %v", err)
 	}
 	return verifyFixture{
 		capability:       capability,

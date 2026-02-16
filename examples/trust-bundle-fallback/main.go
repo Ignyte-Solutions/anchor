@@ -1,0 +1,76 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"log"
+	"time"
+
+	anchorcrypto "github.com/ignyte-solutions/ignyte-anchor-protocol/core/crypto"
+	"github.com/ignyte-solutions/ignyte-anchor-protocol/core/v2"
+)
+
+func main() {
+	referenceTime := time.Date(2026, 2, 16, 16, 0, 0, 0, time.UTC)
+
+	registryPub, registryPriv, err := anchorcrypto.GenerateEd25519KeyPair()
+	must("generate registry keypair", err)
+	issuerPub, _, err := anchorcrypto.GenerateEd25519KeyPair()
+	must("generate issuer keypair", err)
+	issuerID, err := anchorcrypto.DeriveIDFromPublicKey(issuerPub)
+	must("derive issuer id", err)
+
+	bundle := v2.TrustBundle{
+		BundleID:           "bundle-fallback-demo",
+		IssuedAt:           referenceTime.Add(-5 * time.Minute),
+		ExpiresAt:          referenceTime.Add(2 * time.Hour),
+		SignerPublicKeyKID: "registry-k1",
+		Issuers: []v2.TrustBundleIssuer{
+			{
+				IssuerID:      issuerID,
+				IssuerKID:     "issuer-k1",
+				PublicKey:     anchorcrypto.PublicKeyToBase64(issuerPub),
+				ValidFrom:     referenceTime.Add(-5 * time.Minute),
+				ValidUntil:    referenceTime.Add(2 * time.Hour),
+				AssuranceTier: "ORG_VERIFIED",
+			},
+		},
+		RevocationPointers: []string{"https://registry.example/revocations/latest"},
+	}
+	must("sign trust bundle", v2.SignTrustBundle(&bundle, registryPriv))
+
+	cache := v2.NewInMemoryTrustBundleCache()
+	fetcher := &toggleFetcher{bundle: bundle}
+
+	freshBundle, usedFallback, err := v2.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime)
+	must("resolve fetched bundle", err)
+	fmt.Printf("step=fetch used_fallback=%t bundle_id=%s\n", usedFallback, freshBundle.BundleID)
+
+	fetcher.fail = true
+	cachedBundle, usedFallback, err := v2.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime.Add(1*time.Minute))
+	must("resolve cached bundle after fetch failure", err)
+	fmt.Printf("step=fallback used_fallback=%t bundle_id=%s\n", usedFallback, cachedBundle.BundleID)
+
+	resolver := v2.TrustBundleKeyResolver{Bundle: cachedBundle}
+	issuerKey, ok, err := resolver.Resolve(issuerID, "issuer-k1", referenceTime.Add(1*time.Minute))
+	must("resolve issuer key", err)
+	fmt.Printf("issuer_key_resolved=%t key_length=%d\n", ok, len(issuerKey))
+}
+
+type toggleFetcher struct {
+	bundle v2.TrustBundle
+	fail   bool
+}
+
+func (f *toggleFetcher) FetchLatest() (v2.TrustBundle, error) {
+	if f.fail {
+		return v2.TrustBundle{}, errors.New("simulated network failure")
+	}
+	return f.bundle, nil
+}
+
+func must(op string, err error) {
+	if err != nil {
+		log.Fatalf("%s: %v", op, err)
+	}
+}
