@@ -51,7 +51,14 @@ func (c *InMemoryWindowReplayCache) MarkAndCheckWithinWindow(actionID string, ac
 	if window <= 0 {
 		window = 5 * time.Minute
 	}
-	cutoff := referenceTime.UTC().Add(-window)
+	observationTime := referenceTime.UTC()
+	if observationTime.IsZero() {
+		observationTime = actionTimestamp.UTC()
+	}
+	if observationTime.IsZero() {
+		observationTime = time.Now().UTC()
+	}
+	cutoff := observationTime.Add(-window)
 	for id, ts := range c.seen {
 		if ts.Before(cutoff) {
 			delete(c.seen, id)
@@ -60,6 +67,7 @@ func (c *InMemoryWindowReplayCache) MarkAndCheckWithinWindow(actionID string, ac
 	if _, exists := c.seen[actionID]; exists {
 		return true
 	}
-	c.seen[actionID] = actionTimestamp.UTC()
+	// Store first-seen observation time so stale action timestamps cannot bypass replay detection.
+	c.seen[actionID] = observationTime
 	return false
 }

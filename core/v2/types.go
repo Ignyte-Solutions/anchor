@@ -262,9 +262,6 @@ func (b TrustBundle) Validate() error {
 	if !b.ExpiresAt.After(b.IssuedAt) {
 		return errors.New("expires_at must be after issued_at")
 	}
-	if len(b.Issuers) == 0 {
-		return errors.New("issuers must not be empty")
-	}
 	if b.Signature == "" {
 		return errors.New("signature is required")
 	}

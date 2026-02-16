@@ -102,11 +102,13 @@ func (e *Engine) Verify(req VerifyRequest) VerificationResult {
 		return result
 	}
 
-	derivedIssuerID, err := anchorcrypto.DeriveIDFromPublicKey(issuerPub)
-	if err != nil {
-		addReason(ReasonCodeCapabilityInvalid, fmt.Sprintf("invalid issuer public key: %v", err))
-	} else if derivedIssuerID != req.Capability.IssuerID {
-		addReason(ReasonCodeIssuerMismatch, "issuer_id does not match issuer public key")
+	if len(req.IssuerPublicKey) > 0 {
+		derivedIssuerID, err := anchorcrypto.DeriveIDFromPublicKey(issuerPub)
+		if err != nil {
+			addReason(ReasonCodeCapabilityInvalid, fmt.Sprintf("invalid issuer public key: %v", err))
+		} else if derivedIssuerID != req.Capability.IssuerID {
+			addReason(ReasonCodeIssuerMismatch, "issuer_id does not match issuer public key")
+		}
 	}
 
 	capSigValid, capErr := VerifyCapabilitySignature(req.Capability, issuerPub)

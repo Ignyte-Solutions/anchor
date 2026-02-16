@@ -171,13 +171,15 @@ export class IgnyteAnchorOfflineVerifier {
       return result;
     }
 
-    try {
-      const derivedIssuerID = req.crypto.deriveIDFromPublicKey(issuerResolution.publicKey);
-      if (derivedIssuerID !== req.capability.issuer_id) {
-        addReason("ERR_ISSUER_MISMATCH", "issuer_id does not match issuer public key");
+    if (req.issuerPublicKey) {
+      try {
+        const derivedIssuerID = req.crypto.deriveIDFromPublicKey(issuerResolution.publicKey);
+        if (derivedIssuerID !== req.capability.issuer_id) {
+          addReason("ERR_ISSUER_MISMATCH", "issuer_id does not match issuer public key");
+        }
+      } catch (err) {
+        addReason("ERR_CAPABILITY_INVALID", `invalid issuer public key: ${String(err)}`);
       }
-    } catch (err) {
-      addReason("ERR_CAPABILITY_INVALID", `invalid issuer public key: ${String(err)}`);
     }
 
     if (!req.crypto.verifyCapabilitySignature(req.capability, issuerResolution.publicKey)) {

@@ -183,12 +183,13 @@ class IgnyteAnchorOfflineVerifier:
             add_reason("ERR_ISSUER_KEY_MISSING", "issuer key not found for issuer_id+issuer_kid")
             return result
 
-        try:
-            derived_issuer_id = req.crypto.derive_id_from_public_key(issuer_key)
-            if derived_issuer_id != req.capability.issuer_id:
-                add_reason("ERR_ISSUER_MISMATCH", "issuer_id does not match issuer public key")
-        except Exception as err:  # noqa: BLE001
-            add_reason("ERR_CAPABILITY_INVALID", f"invalid issuer public key: {err}")
+        if req.issuer_public_key:
+            try:
+                derived_issuer_id = req.crypto.derive_id_from_public_key(issuer_key)
+                if derived_issuer_id != req.capability.issuer_id:
+                    add_reason("ERR_ISSUER_MISMATCH", "issuer_id does not match issuer public key")
+            except Exception as err:  # noqa: BLE001
+                add_reason("ERR_CAPABILITY_INVALID", f"invalid issuer public key: {err}")
 
         if not req.crypto.verify_capability_signature(req.capability, issuer_key):
             add_reason("ERR_CAPABILITY_SIGNATURE_INVALID", "capability signature invalid")

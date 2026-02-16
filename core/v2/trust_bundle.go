@@ -40,9 +40,6 @@ func SignTrustBundle(bundle *TrustBundle, signerPrivateKey ed25519.PrivateKey) e
 	if !bundle.ExpiresAt.After(bundle.IssuedAt) {
 		return fmt.Errorf("expires_at must be after issued_at")
 	}
-	if len(bundle.Issuers) == 0 {
-		return fmt.Errorf("issuers must not be empty")
-	}
 	if bundle.SignerPublicKeyKID == "" {
 		return fmt.Errorf("signer_public_key_kid is required")
 	}

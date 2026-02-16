@@ -176,13 +176,15 @@ public final class IgnyteAnchorLocalVerifier {
             return result;
         }
 
-        try {
-            String derivedIssuerID = req.cryptoProvider.deriveIDFromPublicKey(issuerResolution.publicKey);
-            if (!req.capability.issuerId.equals(derivedIssuerID)) {
-                addReason(result, ReasonCodes.ISSUER_MISMATCH, "issuer_id does not match issuer public key");
+        if (req.issuerPublicKey != null && !req.issuerPublicKey.isEmpty()) {
+            try {
+                String derivedIssuerID = req.cryptoProvider.deriveIDFromPublicKey(issuerResolution.publicKey);
+                if (!req.capability.issuerId.equals(derivedIssuerID)) {
+                    addReason(result, ReasonCodes.ISSUER_MISMATCH, "issuer_id does not match issuer public key");
+                }
+            } catch (Exception ex) {
+                addReason(result, ReasonCodes.CAPABILITY_INVALID, "invalid issuer public key: " + ex.getMessage());
             }
-        } catch (Exception ex) {
-            addReason(result, ReasonCodes.CAPABILITY_INVALID, "invalid issuer public key: " + ex.getMessage());
         }
 
         if (!req.cryptoProvider.verifyCapabilitySignature(req.capability, issuerResolution.publicKey)) {
