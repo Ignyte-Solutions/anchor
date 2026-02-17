@@ -7,7 +7,7 @@ import (
 	"time"
 
 	anchorcrypto "github.com/ignyte-solutions/ignyte-anchor-protocol/core/crypto"
-	"github.com/ignyte-solutions/ignyte-anchor-protocol/core/v2"
+	protocolgo "github.com/ignyte-solutions/ignyte-anchor-protocol/sdk/go"
 )
 
 func main() {
@@ -25,36 +25,36 @@ func main() {
 	agentID, err := anchorcrypto.DeriveIDFromPublicKey(agentPub)
 	must("derive agent id", err)
 
-	capability := v2.Capability{
-		Version:      v2.Version,
-		IssuerID:     issuerID,
-		IssuerKID:    "issuer-k1",
-		AgentID:      agentID,
-		Audience:     "payments-api",
-		PolicyHash:   "sha256:payments-policy-v1",
-		IssuedAt:     referenceTime.Add(-5 * time.Minute),
-		ExpiresAt:    referenceTime.Add(55 * time.Minute),
-		Nonce:        "cap-2026-02-16-001",
+	capability := protocolgo.Capability{
+		Version:    protocolgo.Version,
+		IssuerID:   issuerID,
+		IssuerKID:  "issuer-k1",
+		AgentID:    agentID,
+		Audience:   "payments-api",
+		PolicyHash: "sha256:payments-policy-v1",
+		IssuedAt:   referenceTime.Add(-5 * time.Minute),
+		ExpiresAt:  referenceTime.Add(55 * time.Minute),
+		Nonce:      "cap-2026-02-16-001",
 		AllowedActions: []string{
 			"payments.transfer.create",
 			"payments.refund.create",
 		},
-		Constraints: v2.ConstraintSet{
+		Constraints: protocolgo.ConstraintSet{
 			ResourceLimits:         map[string]int64{"tokens": 5000},
 			SpendLimits:            map[string]int64{"usd_cents": 200000},
 			APIScopes:              []string{"payments:write"},
 			RateLimits:             map[string]int64{"per_minute": 120},
 			EnvironmentConstraints: []string{"prod"},
 		},
-		Delegation: v2.Delegation{
+		Delegation: protocolgo.Delegation{
 			Depth:    0,
 			MaxDepth: 1,
 		},
 		TransparencyRef: "trn:example:capabilities:2026-02-16",
 	}
-	must("sign capability", v2.SignCapability(&capability, issuerPriv))
+	must("sign capability", protocolgo.SignCapability(&capability, issuerPriv))
 
-	allowAction := v2.ActionEnvelope{
+	allowAction := protocolgo.ActionEnvelope{
 		AgentID:      agentID,
 		CapabilityID: capability.CapabilityID,
 		Audience:     "payments-api",
@@ -62,7 +62,7 @@ func main() {
 		ActionPayload: json.RawMessage(
 			`{"amount_cents":2500,"currency":"USD","destination_account":"acct_demo_001"}`,
 		),
-		ConstraintEvidence: v2.ConstraintEvidence{
+		ConstraintEvidence: protocolgo.ConstraintEvidence{
 			ResourceUsage: map[string]int64{"tokens": 900},
 			SpendUsage:    map[string]int64{"usd_cents": 2500},
 			RateUsage:     map[string]int64{"per_minute": 20},
@@ -71,14 +71,14 @@ func main() {
 		},
 		Timestamp: referenceTime,
 	}
-	must("sign allow action", v2.SignAction(&allowAction, agentPriv))
+	must("sign allow action", protocolgo.SignAction(&allowAction, agentPriv))
 
-	trustBundle := v2.TrustBundle{
+	trustBundle := protocolgo.TrustBundle{
 		BundleID:           "bundle-2026-02-16",
 		IssuedAt:           referenceTime.Add(-10 * time.Minute),
 		ExpiresAt:          referenceTime.Add(24 * time.Hour),
 		SignerPublicKeyKID: "registry-signer-k1",
-		Issuers: []v2.TrustBundleIssuer{
+		Issuers: []protocolgo.TrustBundleIssuer{
 			{
 				IssuerID:      issuerID,
 				IssuerKID:     "issuer-k1",
@@ -90,11 +90,11 @@ func main() {
 		},
 		RevocationPointers: []string{"https://registry.example/revocations/latest"},
 	}
-	must("sign trust bundle", v2.SignTrustBundle(&trustBundle, registryPriv))
+	must("sign trust bundle", protocolgo.SignTrustBundle(&trustBundle, registryPriv))
 
-	resolvedBundle, usedFallback, err := v2.ResolveTrustBundleWithFallback(
+	resolvedBundle, usedFallback, err := protocolgo.ResolveTrustBundleWithFallback(
 		staticTrustBundleFetcher{bundle: trustBundle},
-		v2.NewInMemoryTrustBundleCache(),
+		protocolgo.NewInMemoryTrustBundleCache(),
 		registryPub,
 		referenceTime,
 	)
@@ -102,11 +102,11 @@ func main() {
 
 	fmt.Printf("bundle_source=fetched used_fallback=%t bundle_id=%s\n", usedFallback, resolvedBundle.BundleID)
 
-	engine := v2.NewEngine()
-	replayCache := v2.NewInMemoryWindowReplayCache()
-	keyResolver := v2.TrustBundleKeyResolver{Bundle: resolvedBundle}
+	engine := protocolgo.NewEngine()
+	replayCache := protocolgo.NewInMemoryWindowReplayCache()
+	keyResolver := protocolgo.TrustBundleKeyResolver{Bundle: resolvedBundle}
 
-	baseReq := v2.VerifyRequest{
+	baseReq := protocolgo.VerifyRequest{
 		Capability:         capability,
 		Action:             allowAction,
 		AgentPublicKey:     agentPub,
@@ -116,7 +116,7 @@ func main() {
 		KeyResolver:        keyResolver,
 		ReplayCache:        replayCache,
 		ReplayWindow:       5 * time.Minute,
-		ChallengePolicy: v2.StaticChallengePolicy{
+		ChallengePolicy: protocolgo.StaticChallengePolicy{
 			Required: map[string]struct{}{
 				"payments.refund.create": {},
 			},
@@ -131,7 +131,7 @@ func main() {
 	audienceMismatch.AgentSignature = ""
 	audienceMismatch.Audience = "admin-api"
 	audienceMismatch.Timestamp = referenceTime.Add(1 * time.Minute)
-	must("sign audience mismatch action", v2.SignAction(&audienceMismatch, agentPriv))
+	must("sign audience mismatch action", protocolgo.SignAction(&audienceMismatch, agentPriv))
 	audienceReq := baseReq
 	audienceReq.Action = audienceMismatch
 	printResult("audience_mismatch", engine.Verify(audienceReq))
@@ -141,21 +141,21 @@ func main() {
 	missingChallenge.AgentSignature = ""
 	missingChallenge.ActionType = "payments.refund.create"
 	missingChallenge.Timestamp = referenceTime.Add(2 * time.Minute)
-	must("sign high risk action", v2.SignAction(&missingChallenge, agentPriv))
+	must("sign high risk action", protocolgo.SignAction(&missingChallenge, agentPriv))
 	challengeReq := baseReq
 	challengeReq.Action = missingChallenge
 	printResult("challenge_required", engine.Verify(challengeReq))
 }
 
 type staticTrustBundleFetcher struct {
-	bundle v2.TrustBundle
+	bundle protocolgo.TrustBundle
 }
 
-func (f staticTrustBundleFetcher) FetchLatest() (v2.TrustBundle, error) {
+func (f staticTrustBundleFetcher) FetchLatest() (protocolgo.TrustBundle, error) {
 	return f.bundle, nil
 }
 
-func printResult(name string, result v2.VerificationResult) {
+func printResult(name string, result protocolgo.VerificationResult) {
 	payload, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		log.Fatalf("marshal result %s: %v", name, err)

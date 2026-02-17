@@ -7,7 +7,7 @@ import (
 	"time"
 
 	anchorcrypto "github.com/ignyte-solutions/ignyte-anchor-protocol/core/crypto"
-	"github.com/ignyte-solutions/ignyte-anchor-protocol/core/v2"
+	protocolgo "github.com/ignyte-solutions/ignyte-anchor-protocol/sdk/go"
 )
 
 func main() {
@@ -20,12 +20,12 @@ func main() {
 	issuerID, err := anchorcrypto.DeriveIDFromPublicKey(issuerPub)
 	must("derive issuer id", err)
 
-	bundle := v2.TrustBundle{
+	bundle := protocolgo.TrustBundle{
 		BundleID:           "bundle-fallback-demo",
 		IssuedAt:           referenceTime.Add(-5 * time.Minute),
 		ExpiresAt:          referenceTime.Add(2 * time.Hour),
 		SignerPublicKeyKID: "registry-k1",
-		Issuers: []v2.TrustBundleIssuer{
+		Issuers: []protocolgo.TrustBundleIssuer{
 			{
 				IssuerID:      issuerID,
 				IssuerKID:     "issuer-k1",
@@ -37,34 +37,34 @@ func main() {
 		},
 		RevocationPointers: []string{"https://registry.example/revocations/latest"},
 	}
-	must("sign trust bundle", v2.SignTrustBundle(&bundle, registryPriv))
+	must("sign trust bundle", protocolgo.SignTrustBundle(&bundle, registryPriv))
 
-	cache := v2.NewInMemoryTrustBundleCache()
+	cache := protocolgo.NewInMemoryTrustBundleCache()
 	fetcher := &toggleFetcher{bundle: bundle}
 
-	freshBundle, usedFallback, err := v2.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime)
+	freshBundle, usedFallback, err := protocolgo.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime)
 	must("resolve fetched bundle", err)
 	fmt.Printf("step=fetch used_fallback=%t bundle_id=%s\n", usedFallback, freshBundle.BundleID)
 
 	fetcher.fail = true
-	cachedBundle, usedFallback, err := v2.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime.Add(1*time.Minute))
+	cachedBundle, usedFallback, err := protocolgo.ResolveTrustBundleWithFallback(fetcher, cache, registryPub, referenceTime.Add(1*time.Minute))
 	must("resolve cached bundle after fetch failure", err)
 	fmt.Printf("step=fallback used_fallback=%t bundle_id=%s\n", usedFallback, cachedBundle.BundleID)
 
-	resolver := v2.TrustBundleKeyResolver{Bundle: cachedBundle}
+	resolver := protocolgo.TrustBundleKeyResolver{Bundle: cachedBundle}
 	issuerKey, ok, err := resolver.Resolve(issuerID, "issuer-k1", referenceTime.Add(1*time.Minute))
 	must("resolve issuer key", err)
 	fmt.Printf("issuer_key_resolved=%t key_length=%d\n", ok, len(issuerKey))
 }
 
 type toggleFetcher struct {
-	bundle v2.TrustBundle
+	bundle protocolgo.TrustBundle
 	fail   bool
 }
 
-func (f *toggleFetcher) FetchLatest() (v2.TrustBundle, error) {
+func (f *toggleFetcher) FetchLatest() (protocolgo.TrustBundle, error) {
 	if f.fail {
-		return v2.TrustBundle{}, errors.New("simulated network failure")
+		return protocolgo.TrustBundle{}, errors.New("simulated network failure")
 	}
 	return f.bundle, nil
 }

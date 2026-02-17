@@ -6,14 +6,14 @@ Define open, deterministic authorization artifacts that can be verified locally.
 
 ## Normative objects
 
-- `CapabilityV2`
-- `ActionEnvelopeV2`
-- `VerificationResultV2`
+- `Capability`
+- `ActionEnvelope`
+- `VerificationResult`
 - `TrustBundle`
 
 ## Verification function
 
-`verify(capability, action, trust_bundle, local_policy, replay_cache, now) -> VerificationResultV2`
+`verify(capability, action, trust_bundle, local_policy, replay_cache, now) -> VerificationResult`
 
 Verification MUST NOT require network calls.
 Network-assisted bundle refresh is optional, but verifier behavior must remain correct with cached bundles only.

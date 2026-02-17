@@ -21,3 +21,4 @@ __pycache__/
 .vscode/
 bin/
 *.log
+yc-demo/

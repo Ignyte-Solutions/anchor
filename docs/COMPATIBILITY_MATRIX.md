@@ -2,7 +2,7 @@
 
 Protocol major version in this repository: v2.
 
-| SDK | CapabilityV2 | ActionEnvelopeV2 | VerificationResultV2 | TrustBundle | Offline Verify | Reason-Code Parity Gate |
+| SDK | Capability | ActionEnvelope | VerificationResult | TrustBundle | Offline Verify | Reason-Code Parity Gate |
 | --- | --- | --- | --- | --- | --- | --- |
 | Go | Yes | Yes | Yes | Yes | Yes | Yes |
 | TypeScript | Yes | Yes | Yes | Yes | Yes | Yes |

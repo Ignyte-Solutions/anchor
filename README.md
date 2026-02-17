@@ -24,7 +24,7 @@ Ignyte Anchor Protocol is designed around this model:
 
 ## Core guarantees
 
-- Local and offline verifiability for `CapabilityV2 + ActionEnvelopeV2`.
+- Local and offline verifiability for `Capability + ActionEnvelope`.
 - Deterministic verification outcomes for identical inputs and trust policy.
 - Machine-readable reason codes for integration and audit pipelines.
 - No payment or network dependency for protocol verification.
@@ -64,7 +64,7 @@ Run the trust bundle fallback example:
 go run ./examples/trust-bundle-fallback
 ```
 
-## v2 protocol artifacts
+## Protocol artifacts (current major: v2)
 
 - Capability schema: `spec/schemas/capability-v2.schema.json`
 - Action envelope schema: `spec/schemas/action-envelope-v2.schema.json`
